@@ -34,8 +34,72 @@ lines_replace(file_t *file, uint32_t off, uint32_t off_len, rawbuf_t *lines, uin
 }
 
 static void
-file_lines_mod(file_t *file, range_t *rng, rawbuf_t *lines, uint32_t nlines)
+file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 {
+	rawbuf_t empty = {0};
+	if(nmod == 0) {
+		mod = &empty;
+		nmod = 1;
+	}
+
+	uint32_t nsel = rng->end.line - rng->start.line + 1;
+	string_t **sel_last_line = &file->lines[rng->end.line];
+
+	if(nmod == nsel) {
+		uint16_t off = 0;
+		if(nmod == 1) {
+			off = rng->start.offset;
+		}
+
+ 		(void)string_replace(sel_last_line, off, rng->end.offset - off, mod[nmod-1].buf, mod[nmod-1].len);
+
+		if(nmod == 1) {
+			return;
+		}
+
+	} else if nmod < nsel {
+		realloc(SEL.(MOD.last.nr), SEL.tail.len + MOD.last.len);
+		memcpy(SEL.(MOD.last.nr) + MOD.last.len, SEL.tail, SEL.tail.len);
+		memcpy(SEL.last, MOD.last, MOD.last.len);
+		for(i = nmod; i < nsel; i++) {
+			free(SEL.i);
+		}
+
+		// shift rest of lines up
+		memmove(FILE + SEL.first.nr + nmod, FILE + SEL.first.nr + nsel, nFILE - (SEL.first.nr + nsel));
+	}
+
+	// resize FILE arrray
+	realloc(FILE, nFILE + nmod - nsel);
+
+	string_t *sel_last = 0;
+	if nmod > nsel {
+		// copy over the tail so it will not be overwritten
+		(void)string_resize(&sel_last, 0, 0, mod[nmod-1].len + SEL.tail.len);
+		memcpy(sel_last->buf, mod[nmod-1].buf, mod[nmod-1].len);
+		memcpy(&sel_last->buf[mod[nmod-1].len], &sel_last_line->buf[rng->end.offset], SEL.tail.len);
+
+		// shift rest of lines down
+		memmove(FILE + SEL.first.nr + nmod, FILE + SEL.last.nr, nFILE - SEL.last.nr);
+	}
+
+	nFILE += nmod - nsel;
+
+	// (re)alloc and copy
+	realloc(SEL.first, SEL.head.len + MOD.first.len);
+	memcpy(SEL.head.end, MOD.first, MOD.first.len)
+	for(i = 1 ; i < nmod - 1, i++) {
+		realloc(SEL.i, MOD.i.len);
+		memcpy(SEL.i, MOD.i, MOD.i.len);
+	}
+	if(nmod > nsel) {
+		SEL.last = tmp.SEL.last;
+	}
+
+
+
+
+
 	rawbuf_t empty = {0};
 	if(!nlines) {
 		lines = &empty;

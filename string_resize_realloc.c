@@ -5,29 +5,14 @@
 #include "string.h"
 
 string_t *
-string_resize(string_t *str, uint16_t off, uint16_t off_len, uint16_t len)
+string_resize_priv(string_t **pstr, uint16_t size, uint16_t sub_off, uint16_t sub_end, uint16_t new_sub_len)
 {
-	if(!str) {
-		assert(!off & !off_len);
-		str = string_alloc(string_next_size(len));
-		str->len = len;
-		str->free -= len;
-		return str;
-	}
-	assert(off + off_len <= str->len);
+	(void)sub_off; (void)sub_end; (void)new_sub_len;
 
-	uint32_t new_len = str->len - off_len + len;
-	uint32_t end = off + off_len;
-	if(len > str->free + off_len) {
-		string_t *old_str = str;
-		str = string_realloc(old_str, string_next_size(new_len));
-		if(!str) {
-			// FIXME: error handling, also free(old_str) ?
-		}
-		str->free = new_alloc - new_len;
-		str->free -= new_len;
+	string_t *new_str = string_realloc(*pstr, size);
+	if(!new_str) {
+		// FIXME: error handling, also free(*str) ?
 	}
-	memmove(&str->buf[off + len], &str->buf[end], str->len - end);
-	str->len = new_len;
-	return str;
+	*pstr = new_str;
+	return new_str;
 }

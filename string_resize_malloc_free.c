@@ -4,37 +4,18 @@
 
 #include "string.h"
 
-// assert: str is a valid pointer
-// assert: off + off_len <= str->len
-
-static string_t *
-string_resize(string_t *str, uint16_t off, uint16_t off_len, uint16_t len)
+string_t *
+string_resize_priv(string_t **pstr, uint16_t size, uint16_t sub_off, uint16_t sub_end, uint16_t new_sub_len)
 {
-	if(!str) {
-		assert(!off & !off_len);
-		str = string_alloc(string_next_size(len));
-		str->len = len;
-		str->free -= len;
-		return str;
+	string_t *old_str = *pstr;
+	string_t *new_str = string_alloc(size);
+	if(!new_str) {
+		// FIXME: error handling
 	}
-	assert(off + off_len <= str->len);
+	memcpy(new_str->buf, old_str->buf, sub_off);
+	memcpy(&new_str->buf[sub_off + new_sub_len], &old_str->buf[sub_end], old_str->len - sub_end);
 
-	uint32_t new_len = str->len - off_len + len;
-	uint32_t end = off + off_len;
-	if(len > str->free + off_len) {
-		string_t *old_str = str;
-		uint32_t new_alloc = (new_len / SEGMENT_SIZE + 1) * SEGMENT_SIZE;
-		str = string_alloc(new_alloc);
-		if(!str) {
-			// FIXME: error handling
-		}
-		memcpy(str->buf, old_str->buf, off);
-		memcpy(&str->buf[off + len], &old_str->buf[end], old_str->len - end);
-		str->free = new_alloc - new_len;
-		free(old_str);
-	} else {
-		memmove(&str->buf[off + len], &str->buf[end], str->len - end);
-	}
-	str->len = new_len;
-	return str;
+	free(old_str);
+	*pstr = new_str;
+	return new_str;
 }
