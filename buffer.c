@@ -60,14 +60,12 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 
 	if(nmod < nsel) {
 		memswap(&file->lines[file->len], &file->lines[rng->start.line + nmod], nsel - nmod);
-		memmove(&file->lines[rng->start.line + nmod], &file->lines[rng->end.line], file->len - rng->end.line);
 	}
 
 	file = realloc(file, file->len + nmod - nsel); // zero extended or free shrinked
 
 	if(nmod > nsel) {
 		memswap(&file->lines[rng->start.line + nmod], &file->lines[file->len], nmod - nsel);
-		memmove(&file->lines[rng->start.line + nmod], &file->lines[rng->end.line], file->len - rng->end.line);
 	}
 
 	file->len += nmod - nsel;
