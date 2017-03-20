@@ -59,10 +59,27 @@ string_resize(string_t **pstr, uint16_t sub_off, uint16_t sub_len, uint16_t new_
 }
 
 string_t *
+string_replace_multi(string_t **pstr, uint16_t sub_off, uint16_t sub_len, rawbuf_t *mod, uint32_t nmod)
+{
+	rawbuf_t empty = {0};
+	if(nmod == 0) {
+		mod = &empty;
+		nmod = 1;
+	}
+	uint16_t len = 0;
+	for(uint32_t i = 0; i < nmod; i++) {
+		len += mod[i].len;
+	}
+	string_t *str = string_resize(pstr, sub_off, sub_len, len);
+	for(uint32_t i = 0; i < nmod; i++) {
+		memcpy(&str->buf[sub_off], mod[i].buf, mod[i].len);
+		sub_off += mod[i].len;
+	}
+	return str;
+}
+
+string_t *
 string_replace(string_t **pstr, uint16_t sub_off, uint16_t sub_len, char *buf, uint16_t len)
 {
-	assert(buf != 0 || len == 0);
-	string_t *str = string_resize(pstr, sub_off, sub_len, len);
-	memcpy(&str->buf[off], buf, len);
-	return str;
+	return string_replace_multi(pstr, sub_off, sub_len, &(rawbuf_t){buf, len}, 1);
 }
