@@ -4,6 +4,11 @@ typedef struct {
 	char buf[];
 } string_t;
 
+typedef struct {
+	char *buf;
+	uint16_t len;
+} rawbuf_t;
+
 string_t *string_alloc(uint16_t size);
 string_t *string_realloc(string_t *str, uint16_t size);
 
