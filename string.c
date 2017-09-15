@@ -1,8 +1,10 @@
+#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "string.h"
+#include "string_next_size.h"
 
 string_t *
 string_alloc(uint16_t size)
@@ -30,7 +32,7 @@ string_t *
 string_resize(string_t **pstr, uint16_t sub_off, uint16_t sub_len, uint16_t new_sub_len)
 {
 	string_t *str = *pstr;
-	if(!pstr) {
+	if(!pstr || !str) {
 		assert(!sub_off & !sub_len);
 		str = string_alloc(string_next_size(new_sub_len));
 		str->len = new_sub_len;

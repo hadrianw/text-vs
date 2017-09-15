@@ -1,20 +1,38 @@
+#define _XOPEN_SOURCE
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "string.h"
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) < (b) ? (b) : (a))
+#define LEN(a) (sizeof(a) / sizeof(a)[0])
+
+#define TEST(X) void TEST_##X(void)
+
 typedef struct {
 	uint32_t len;
-	uint32_t free;
+	uint32_t size;
 	string_t **lines;
 } file_t;
-
-private
-typedef struct {
-	char *buf;
-	uint16_t len;
-} rawbuf_t;
 
 typedef struct {
 	uint32_t line;
 	uint16_t offset;
 } address_t;
 
+typedef struct {
+	address_t start;
+	address_t end;
+} range_t;
+
+/*
 typedef struct {
 	struct __attribute__((__packed__)) {
 		uint32_t line;
@@ -25,6 +43,23 @@ typedef struct {
 		uint32_t line;
 	} end;
 } range_t;
+*/
+
+static inline bool
+is_str_eq(const char *s1, size_t n1, const char *s2, size_t n2)
+{
+	if(n1 != n2) {
+		return false;
+	}
+	return !memcmp(s1, s2, MIN(n1, n2));
+}
+
+#define SEGMENT_SIZE 512
+static uint32_t
+next_size(uint32_t len)
+{
+	return (len / SEGMENT_SIZE + 1) * SEGMENT_SIZE;
+}
 
 static void
 file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
@@ -36,7 +71,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 	}
 
 	uint32_t nsel = rng->end.line - rng->start.line + 1;
-	string_t **sel_mod_last = &file->lines[rng->start.line + nmod-1];
+	uint32_t file_mod_last =  rng->start.line + nmod-1;
 
 	if(nmod == nsel) {
 		uint16_t off = 0;
@@ -44,64 +79,122 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 			off = rng->start.offset;
 		}
 		
- 		(void)string_replace(sel_mod_last, off, rng->end.offset - off, mod[nmod-1], 1);
+ 		(void)string_replace_multi(
+ 			&file->lines[file_mod_last],
+ 			off, rng->end.offset - off,
+ 			&mod[nmod-1], 1
+ 		);
 
 		if(nmod == 1) {
 			return;
 		}
 
-	} else {
-		string_t *sel_last = file->lines[rng->end.line];
-		rawbuf_t mod_last[] = { mod[nmod-1], {&sel_last->buf[rng->end.offset], sel_last->len - rng->end.offset} };
-
-		(*sel_mod_last)->len = 0;
-		(void)string_replace(&sel_mod_last, 0, 0, mod_last, LEN(mod_last));
 	}
+	
+	uint32_t new_file_len = file->len + nmod - nsel;
+	uint32_t file_mod_end = rng->start.line + nmod;
+	uint32_t file_sel_end = rng->start.line + nsel;
 
+	// abCDEFgh_ -> abXYZgh
 	if(nmod < nsel) {
-		memswap(&file->lines[file->len], &file->lines[rng->start.line + nmod], nsel - nmod);
+		// abCDZFgh_
+		string_t *sel_last = file->lines[rng->end.line];
+		rawbuf_t mod_last[] = {
+			mod[nmod-1],
+			{&sel_last->buf[rng->end.offset], sel_last->len - rng->end.offset}
+		};
+		(void)string_replace_multi(
+			&file->lines[file_mod_last],
+			0, file->lines[file_mod_last]->len,
+			mod_last, LEN(mod_last)
+		);
+
+		// abCDZ.gh_
+		for(uint32_t i = file_mod_end; i < file_sel_end; i++) {
+			free(file->lines[i]);
+			file->lines[i] = 0;
+		}
+
+		// abCDZghh_
+		memmove(
+			&file->lines[file_mod_end],
+			&file->lines[file_sel_end],
+			file->len - (file_sel_end)
+		);
+		// abCDZgh._
+		for(uint32_t i = new_file_len; i < file->len; i++) {
+			file->lines[i] = 0;
+		}
 	}
 
-	file = realloc(file, file->len + nmod - nsel); // zero extended or free shrinked
+	uint32_t new_file_size = next_size(new_file_len);
+
+	// abCDZgh_.
+	for(uint32_t i = new_file_size; i < file->size; i++) {
+		free(file->lines[i]);
+	}
+
+	// abCDZgh_-
+	// hgFEDCba_+
+	file->lines = realloc(file->lines, new_file_size);
+
+	// hgFEDCba_ -> hgUVWXYZba
+	if(new_file_size > file->size) {
+		// hgFEDCba_.
+		memset(&file->lines[file->size], 0, new_file_size - file->size);
+	}
 
 	if(nmod > nsel) {
-		memswap(&file->lines[rng->start.line + nmod], &file->lines[file->len], nmod - nsel);
+		// hgFEDCbaba
+		memmove(
+			&file->lines[file_mod_end],
+			&file->lines[file_sel_end],
+			file->len - file_sel_end
+		);
+
+		// hgFEDC..ba
+		for(uint32_t i = file_sel_end; i < file_mod_end; i++) {
+			file->lines[i] = 0;
+		}
+
+		// hgFEDC_Zba
+		string_t *sel_last = file->lines[rng->end.line];
+		rawbuf_t mod_last[] = {
+			mod[nmod-1],
+			{&sel_last->buf[rng->end.offset], sel_last->len - rng->end.offset}
+		};
+		(void)string_replace_multi(
+			&file->lines[file_mod_last],
+			0, 0,
+			mod_last, LEN(mod_last)
+		);
 	}
 
-	file->len += nmod - nsel;
+	file->len = new_file_len;
+	file->size = new_file_size;
 
+	// abXDZgh_
+	// hgUEDC_Zba
 	file->lines[rng->start.line]->len = rng->start.offset;
-	(void)string_replace(&file->lines[rng->start.line], rng->start.offset, 0, mod[0], 1);
+	(void)string_replace_multi(
+		&file->lines[rng->start.line],
+		rng->start.offset, 0,
+		&mod[0], 1
+	);
 
-	for(i = 1 ; i < nmod - 1, i++) {
-		file->lines[rng->start.line + i]->len = 0;
-		(void)string_replace(&file->lines[rng->start.line + i], 0, 0, mod[i], 1);
+	// abXYZgh_
+	// hgUVWXYZba
+	for(uint32_t i = 1 ; i < nmod - 1; i++) {
+		(void)string_replace_multi(
+			&file->lines[rng->start.line + i],
+			0, file->lines[rng->start.line + i]->len,
+			&mod[i], 1
+		);
 	}
-}
-
-TEST(range_mod_line) {
-	file_t file = { 0 };
-	file_insert_line(&file, 0, "123\n", 4);
-	file_insert_line(&file, 1, "456\n", 4);
-	range_t rng = {
-		{0, 1}, {1, 2}, &file
-	};
-	{
-		char mod_line[] = "abc\n";
-		range_mod_line(&rng, mod_line, sizeof(mod_line)-1);
-	} {
-		char mod_line[] = "def";
-		range_mod_line(&rng, mod_line, sizeof(mod_line)-1);
-	}
-	assert(is_str_eq(file.content.data[0].data, file.content.data[0].nmemb,
-		"1abc\n", 5));
-	assert(is_str_eq(file.content.data[1].data, file.content.data[0].nmemb,
-		"def6\n", 5));
-	file_free(&file);
 }
 
 static void
-file_mod(file_t **file, range_t *rng, char *mod, size_t mod_len)
+file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 {
 	size_t rest = mod_len;
 	char *next;
@@ -127,31 +220,48 @@ file_mod(file_t **file, range_t *rng, char *mod, size_t mod_len)
 			lines[nlines++] = (rawbuf_t){mod, mod_len};
 			mod = next;
 			rest -= mod_len;
-		} while(rest > 0 || nlines < LEN(lines));
+		} while(rest > 0 && nlines < LEN(lines));
 
 		file_lines_mod(file, rng, lines, nlines);
+		printf("%.*s", (int)file->lines[1]->len, file->lines[1]->buf);
+		rng->start = rng->end;
 	}
-	file_mod_line(file, rng, "", 0);
+	//file_lines_mod(file, rng, 0, 0);
 }
 
-TEST(range_mod) {
-	file_t file = { 0 };
-	file_insert_line(&file, 0, "123\n", 4);
-	file_insert_line(&file, 1, "456\n", 4);
+TEST(file_mod) {
+	file_t file = { 1, 1 };
+	file.lines = calloc(file.size, sizeof(file.lines[0]));
+	file.lines[0] = string_alloc(8);
+
+	{
+		char mod[] = "123\n456\n";
+		file_mod(&file, &(range_t){0}, mod, LEN(mod)-1);
+	}
+
 	range_t rng = {
-		{0, 1}, {1, 2}, &file
+		{0, 1}, {1, 2}
 	};
-	char mod_line[] = "abc\ndef";
-	range_mod(&rng, mod_line, sizeof(mod_line)-1);
-	assert(is_str_eq(file.content.data[0].data, file.content.data[0].nmemb,
-		"1abc\n", 5));
-	assert(is_str_eq(file.content.data[1].data, file.content.data[0].nmemb,
-		"def6\n", 5));
-	file_free(&file);
+	char mod[] = "abc\ndef";
+	file_mod(&file, &rng, mod, LEN(mod)-1);
+
+	assert(is_str_eq(
+		file.lines[0]->buf, file.lines[0]->len,
+		"1abc\n", 5
+	));
+	assert(is_str_eq(
+		file.lines[1]->buf, file.lines[1]->len,
+		"def6\n", 5
+	));
+
+	for(uint32_t i = 0; i < file.size; i++) {
+		free(file.lines[i]);
+	}
+	free(file.lines);
 }
 
 int
-file_read(file_t **file, range_t *rng, int fd)
+file_read(file_t *file, range_t *rng, int fd)
 {
 	char buf[BUFSIZ];
 	ssize_t buf_len;
@@ -162,5 +272,12 @@ file_read(file_t **file, range_t *rng, int fd)
 		file_mod(file, rng, buf, buf_len);
 	}
 
+	return 0;
+}
+
+int
+main(int argc, char **argv)
+{
+	TEST_file_mod();
 	return 0;
 }
