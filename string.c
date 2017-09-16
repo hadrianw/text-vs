@@ -53,7 +53,7 @@ string_resize(string_t **pstr, uint16_t sub_off, uint16_t sub_len, uint16_t new_
 	}
 
 	if(new_sub_len > sub_len) {
-		memmove(&str->buf[sub_off + sub_len], &str->buf[sub_end], str->len - sub_end);
+		memmove(&str->buf[sub_off + new_sub_len], &str->buf[sub_end], str->len - sub_end);
 	}
 
 	str->len = new_len;

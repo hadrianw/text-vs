@@ -119,7 +119,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		memmove(
 			&file->lines[file_mod_end],
 			&file->lines[file_sel_end],
-			file->len - (file_sel_end)
+			(file->len - file_sel_end) * sizeof(file->lines[0])
 		);
 		// abCDZgh._
 		for(uint32_t i = new_file_len; i < file->len; i++) {
@@ -136,12 +136,12 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 
 	// abCDZgh_-
 	// hgFEDCba_+
-	file->lines = realloc(file->lines, new_file_size);
+	file->lines = realloc(file->lines, new_file_size * sizeof(file->lines[0]));
 
 	// hgFEDCba_ -> hgUVWXYZba
 	if(new_file_size > file->size) {
 		// hgFEDCba_.
-		memset(&file->lines[file->size], 0, new_file_size - file->size);
+		memset(&file->lines[file->size], 0, (new_file_size - file->size) * sizeof(file->lines[0]));
 	}
 
 	if(nmod > nsel) {
@@ -149,7 +149,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		memmove(
 			&file->lines[file_mod_end],
 			&file->lines[file_sel_end],
-			file->len - file_sel_end
+			(file->len - file_sel_end) * sizeof(file->lines[0])
 		);
 
 		// hgFEDC..ba
@@ -223,10 +223,9 @@ file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 		} while(rest > 0 && nlines < LEN(lines));
 
 		file_lines_mod(file, rng, lines, nlines);
-		printf("%.*s", (int)file->lines[1]->len, file->lines[1]->buf);
 		rng->start = rng->end;
 	}
-	//file_lines_mod(file, rng, 0, 0);
+	file_lines_mod(file, rng, 0, 0);
 }
 
 TEST(file_mod) {
