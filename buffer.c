@@ -71,33 +71,55 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 	}
 
 	uint32_t nsel = rng->end.line - rng->start.line + 1;
+
+	if(nmod == 1 && nsel == 1) {
+		(void)string_replace_multi(
+			&file->lines[rng->start.line],
+			rng->start.offset, rng->end.offset - rng->start.offset,
+			&mod[0], 1
+		);
+		return;
+	}
+
+	// nmod == nsel: ijKLMNop -> ijXYZWop // X = head(C) mod[0]; W = mod[-1] tail(N)
+	// nmod < nsel: abCDEFgh_ -> abXYZgh // X = head(C) mod[0]; Z = mod[-1] tail(F)
+	// nmod < nsel && nmod == 1: abCDEfg_ -> abXfg__ // X = head(C) mod[0] tail(E)
+	// nmod > nsel: hgFEDCba_ -> hgUVWXYZba // U = head(F) mod[0]; Z = mod[-1] tail(C)
+	// nmod > nsel && nsel == 1: edCba_ -> edUVWba // U = head(C) mod[0]; W = mod[-1] tail(C)
+
+	if(nmod <= nsel){
+		// ij[X]LMNop
+		// ab[X]DEFgh_
+		file->lines[rng->start.line]->len = rng->start.offset;
+		(void)string_replace_multi(
+			&file->lines[rng->start.line],
+			rng->start.offset, 0,
+			&mod[0], 1
+		);
+	}
+
 	uint32_t file_mod_last =  rng->start.line + nmod-1;
 
 	if(nmod == nsel) {
-		uint16_t off = 0;
-		if(nmod == 1) {
-			off = rng->start.offset;
-		}
-		
+		// ijXLM[W]op
  		(void)string_replace_multi(
  			&file->lines[file_mod_last],
- 			off, rng->end.offset - off,
+			0, rng->end.offset,
  			&mod[nmod-1], 1
  		);
-
-		if(nmod == 1) {
-			return;
-		}
-
 	}
 	
 	uint32_t new_file_len = file->len + nmod - nsel;
 	uint32_t file_mod_end = rng->start.line + nmod;
 	uint32_t file_sel_end = rng->start.line + nsel;
 
-	// abCDEFgh_ -> abXYZgh
 	if(nmod < nsel) {
-		// abCDZFgh_
+		// abXD[Z]Fgh_
+		// ab[X]DEfg_
+		uint16_t off = 0;
+		if(nmod == 1) {
+			off = rng->start.offset;
+		}
 		string_t *sel_last = file->lines[rng->end.line];
 		rawbuf_t mod_last[] = {
 			mod[nmod-1],
@@ -105,23 +127,26 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		};
 		(void)string_replace_multi(
 			&file->lines[file_mod_last],
-			0, file->lines[file_mod_last]->len,
+			off, file->lines[file_mod_last]->len - off,
 			mod_last, LEN(mod_last)
 		);
 
-		// abCDZ.gh_
+		// abXDZ[.]gh_
+		// abX[..]fg_
 		for(uint32_t i = file_mod_end; i < file_sel_end; i++) {
 			free(file->lines[i]);
 			file->lines[i] = 0;
 		}
 
-		// abCDZghh_
+		// abXDZ[gh]h_
+		// abX[fg]fg_
 		memmove(
 			&file->lines[file_mod_end],
 			&file->lines[file_sel_end],
 			(file->len - file_sel_end) * sizeof(file->lines[0])
 		);
-		// abCDZgh._
+		// abXDZgh[.]_
+		// abXfg[..]_
 		for(uint32_t i = new_file_len; i < file->len; i++) {
 			file->lines[i] = 0;
 		}
@@ -129,35 +154,41 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 
 	uint32_t new_file_size = next_size(new_file_len);
 
-	// abCDZgh_.
+	// abXDZgh_[.]
+	// abXfg__[.]
 	for(uint32_t i = new_file_size; i < file->size; i++) {
 		free(file->lines[i]);
 	}
 
-	// abCDZgh_-
-	// hgFEDCba_+
+	// abXDZgh_[-]
+	// abXfg__[-]
+	// hgFEDCba_[+]
+	// edCba_[+]
 	file->lines = realloc(file->lines, new_file_size * sizeof(file->lines[0]));
 
-	// hgFEDCba_ -> hgUVWXYZba
 	if(new_file_size > file->size) {
-		// hgFEDCba_.
+		// hgFEDCba_[.]
+		// edCba_[.]
 		memset(&file->lines[file->size], 0, (new_file_size - file->size) * sizeof(file->lines[0]));
 	}
 
 	if(nmod > nsel) {
-		// hgFEDCbaba
+		// hgFEDCba[ba]
+		// edCba[ba]
 		memmove(
 			&file->lines[file_mod_end],
 			&file->lines[file_sel_end],
 			(file->len - file_sel_end) * sizeof(file->lines[0])
 		);
 
-		// hgFEDC..ba
+		// hgFEDC[..]ba
+		// edC[..]ba
 		for(uint32_t i = file_sel_end; i < file_mod_end; i++) {
 			file->lines[i] = 0;
 		}
 
-		// hgFEDC_Zba
+		// hgFEDC_[Z]ba
+		// edC_[W]ba
 		string_t *sel_last = file->lines[rng->end.line];
 		rawbuf_t mod_last[] = {
 			mod[nmod-1],
@@ -168,26 +199,31 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 			0, 0,
 			mod_last, LEN(mod_last)
 		);
+
+		// hgUEDC_[Z]ba
+		// edU_[W]ba
+		file->lines[rng->start.line]->len = rng->start.offset;
+		(void)string_replace_multi(
+			&file->lines[rng->start.line],
+			rng->start.offset, 0,
+			&mod[0], 1
+		);
 	}
 
 	file->len = new_file_len;
 	file->size = new_file_size;
 
-	// abXDZgh_
-	// hgUEDC_Zba
-	file->lines[rng->start.line]->len = rng->start.offset;
-	(void)string_replace_multi(
-		&file->lines[rng->start.line],
-		rng->start.offset, 0,
-		&mod[0], 1
-	);
-
-	// abXYZgh_
-	// hgUVWXYZba
+	// abX[Y]Zgh_
+	// hgU[VWXY]Zba
+	// edU[V]Wba
 	for(uint32_t i = 1 ; i < nmod - 1; i++) {
+		size_t len = 0;
+		if(file->lines[rng->start.line + i] != NULL) {
+			len = file->lines[rng->start.line + i]->len;
+		}
 		(void)string_replace_multi(
 			&file->lines[rng->start.line + i],
-			0, file->lines[rng->start.line + i]->len,
+			0, len, // FIXME: file->lines[X]  can be NULL
 			&mod[i], 1
 		);
 	}
@@ -196,10 +232,11 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 static void
 file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 {
+	int newline_last = mod[mod_len-1] == '\n';
 	size_t rest = mod_len;
 	char *next;
 
-	rawbuf_t lines[BUFSIZ / 2];
+	rawbuf_t lines[BUFSIZ / 2 + 1];
 	uint32_t nlines;
 
 	while(rest > 0) {
@@ -220,38 +257,113 @@ file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 			lines[nlines++] = (rawbuf_t){mod, mod_len};
 			mod = next;
 			rest -= mod_len;
-		} while(rest > 0 && nlines < LEN(lines));
+		} while(rest > 0 && nlines < LEN(lines)-1);
+
+		if(rest == 0 && newline_last) {
+			lines[nlines++] = (rawbuf_t){0};
+		}
 
 		file_lines_mod(file, rng, lines, nlines);
 		rng->start = rng->end;
 	}
-	file_lines_mod(file, rng, 0, 0);
+	//  FIXME:
+	//file_lines_mod(file, rng, 0, 0);
 }
 
+#define STR_PAIR(x) x, (sizeof(x)-1)
+
 TEST(file_mod) {
+	struct mod {
+		range_t rng;
+		char *mod;
+		size_t mod_len;
+		char *result;
+		size_t result_len;
+	};
+	struct mod mods[] = {
+		{
+			{{0}},
+			STR_PAIR(
+				"123\n"
+				"456\n"
+				""
+			),
+			STR_PAIR(
+				"123\n"
+				"456\n"
+				""
+			),
+		}, {
+			{{0, 1}, {1, 2}},
+			STR_PAIR(
+				"abc\n"
+				"def"
+			),
+			STR_PAIR(
+				"1abc\n"
+				"def6\n"
+				""
+			),
+		},  {
+			{{1, 2}, {1, 3}},
+			STR_PAIR(
+				"FFFF"
+			),
+			STR_PAIR(
+				"1abc\n"
+				"deFFFF6\n"
+				""
+			),
+		},  {
+			{{2, 0}, {2, 0}},
+			STR_PAIR(
+				"xyz"
+			),
+			STR_PAIR(
+				"1abc\n"
+				"deFFFF6\n"
+				"xyz"
+			),
+		}, {
+			{{1, 6}, {2, 1}},
+			STR_PAIR(
+				"qq"
+			),
+			STR_PAIR(
+				"1abc\n"
+				"deFFFFqqyz"
+			),
+		},
+	};
+
 	file_t file = { 1, 1 };
 	file.lines = calloc(file.size, sizeof(file.lines[0]));
 	file.lines[0] = string_alloc(8);
 
-	{
-		char mod[] = "123\n456\n";
-		file_mod(&file, &(range_t){0}, mod, LEN(mod)-1);
+	for(size_t i = 0; i < LEN(mods); i++) {
+		file_mod(&file, &mods[i].rng, mods[i].mod, mods[i].mod_len);
+
+		char *line = mods[i].result;
+		char *next;
+		size_t rest = mods[i].result_len;
+		size_t len;
+		for(size_t j = 0; j < file.len; j++) {
+				next = memchr(line, '\n', rest);
+				if(next) {
+					next++;
+					len = next - line;
+				} else {
+					len = rest;
+				}
+				assert(is_str_eq(
+					file.lines[j]->buf, file.lines[j]->len,
+					line, len
+				));
+				line = next;
+				rest -= len;
+		}
+		assert(rest == 0);
 	}
-
-	range_t rng = {
-		{0, 1}, {1, 2}
-	};
-	char mod[] = "abc\ndef";
-	file_mod(&file, &rng, mod, LEN(mod)-1);
-
-	assert(is_str_eq(
-		file.lines[0]->buf, file.lines[0]->len,
-		"1abc\n", 5
-	));
-	assert(is_str_eq(
-		file.lines[1]->buf, file.lines[1]->len,
-		"def6\n", 5
-	));
 
 	for(uint32_t i = 0; i < file.size; i++) {
 		free(file.lines[i]);
