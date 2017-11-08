@@ -33,7 +33,7 @@ string_resize(string_t **pstr, uint16_t sub_off, uint16_t sub_len, uint16_t new_
 {
 	string_t *str = *pstr;
 	if(!pstr || !str) {
-		assert(!sub_off & !sub_len);
+		assert(!sub_off && !sub_len);
 		str = string_alloc(string_next_size(new_sub_len));
 		str->len = new_sub_len;
 		*pstr = str;
