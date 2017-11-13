@@ -217,13 +217,12 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 	// hgU[VWXY]Zba
 	// edU[V]Wba
 	for(uint32_t i = 1 ; i < nmod - 1; i++) {
-		size_t len = 0;
 		if(file->lines[rng->start.line + i] != NULL) {
-			len = file->lines[rng->start.line + i]->len;
+			file->lines[rng->start.line + i]->len = 0;
 		}
 		(void)string_replace_multi(
 			&file->lines[rng->start.line + i],
-			0, len, // FIXME: file->lines[X]  can be NULL
+			0, 0,
 			&mod[i], 1
 		);
 	}
