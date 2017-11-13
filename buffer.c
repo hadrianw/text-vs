@@ -332,6 +332,21 @@ TEST(file_mod) {
 				"1abc\n"
 				"deFFFFqqyz"
 			),
+		}, {
+			{{1, 9}, {1, 10}},
+			STR_PAIR(
+				"\n"
+				"I like milk\n"
+				"and other liquids\n"
+				"like water for example\n"
+			),
+			STR_PAIR(
+				"1abc\n"
+				"deFFFFqqy\n"
+				"I like milk\n"
+				"and other liquids\n"
+				"like water for example\n"
+			),
 		},
 	};
 
