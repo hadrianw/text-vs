@@ -269,6 +269,24 @@ file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 	//file_lines_mod(file, rng, 0, 0);
 }
 
+void
+file_init(file_t *file, uint32_t size)
+{
+	file->len = 1;
+	file->size = size;
+	file->lines = calloc(size, sizeof(file->lines[0]));
+	file->lines[0] = string_alloc(8);
+}
+
+void
+file_free(file_t *file)
+{
+	for(uint32_t i = 0; i < file->size; i++) {
+		free(file->lines[i]);
+	}
+	free(file->lines);
+}
+
 #define STR_PAIR(x) x, (sizeof(x)-1)
 
 TEST(file_mod) {
@@ -350,9 +368,8 @@ TEST(file_mod) {
 		},
 	};
 
-	file_t file = { 1, 1 };
-	file.lines = calloc(file.size, sizeof(file.lines[0]));
-	file.lines[0] = string_alloc(8);
+	file_t file;
+	file_init(&file, 1);
 
 	for(size_t i = 0; i < LEN(mods); i++) {
 		file_mod(&file, &mods[i].rng, mods[i].mod, mods[i].mod_len);
@@ -379,10 +396,7 @@ TEST(file_mod) {
 		assert(rest == 0);
 	}
 
-	for(uint32_t i = 0; i < file.size; i++) {
-		free(file.lines[i]);
-	}
-	free(file.lines);
+	file_free(&file);
 }
 
 int
