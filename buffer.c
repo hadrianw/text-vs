@@ -16,15 +16,17 @@
 
 #define TEST(X) void TEST_##X(void)
 
+typedef uint32_t linenr_t;
+
 typedef struct {
-	uint32_t len;
-	uint32_t size;
+	linenr_t len;
+	linenr_t size;
 	string_t **lines;
 } file_t;
 
 typedef struct {
-	uint32_t line;
-	uint16_t offset;
+	linenr_t line;
+	stroff_t offset;
 } address_t;
 
 typedef struct {
@@ -35,12 +37,12 @@ typedef struct {
 /*
 typedef struct {
 	struct __attribute__((__packed__)) {
-		uint32_t line;
-		uint16_t offset;
+		linenr_t line;
+		stroff_t offset;
 	} start;
 	struct __attribute__((__packed__)) {
-		uint16_t offset;
-		uint32_t line;
+		stroff_t offset;
+		linenr_t line;
 	} end;
 } range_t;
 */
@@ -48,21 +50,18 @@ typedef struct {
 static inline bool
 is_str_eq(const char *s1, size_t n1, const char *s2, size_t n2)
 {
-	if(n1 != n2) {
-		return false;
-	}
-	return !memcmp(s1, s2, MIN(n1, n2));
+	return n1 == n2 && !memcmp(s1, s2, MIN(n1, n2));
 }
 
 #define SEGMENT_SIZE 512
-static uint32_t
-next_size(uint32_t len)
+static linenr_t
+next_size(linenr_t len)
 {
 	return (len / SEGMENT_SIZE + 1) * SEGMENT_SIZE;
 }
 
 static void
-file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
+file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, linenr_t nmod)
 {
 	rawbuf_t empty = {0};
 	if(nmod == 0) {
@@ -70,7 +69,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		nmod = 1;
 	}
 
-	uint32_t nsel = rng->end.line - rng->start.line + 1;
+	linenr_t nsel = rng->end.line - rng->start.line + 1;
 
 	if(nmod == 1 && nsel == 1) {
 		(void)string_replace_multi(
@@ -98,7 +97,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		);
 	}
 
-	uint32_t file_mod_last =  rng->start.line + nmod-1;
+	linenr_t file_mod_last =  rng->start.line + nmod-1;
 
 	if(nmod == nsel) {
 		// ijXLM[W]op
@@ -109,14 +108,14 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
  		);
 	}
 	
-	uint32_t new_file_len = file->len + nmod - nsel;
-	uint32_t file_mod_end = rng->start.line + nmod;
-	uint32_t file_sel_end = rng->start.line + nsel;
+	linenr_t new_file_len = file->len + nmod - nsel;
+	linenr_t file_mod_end = rng->start.line + nmod;
+	linenr_t file_sel_end = rng->start.line + nsel;
 
 	if(nmod < nsel) {
 		// abXD[Z]Fgh_
 		// ab[X]DEfg_
-		uint16_t off = 0;
+		stroff_t off = 0;
 		if(nmod == 1) {
 			off = rng->start.offset;
 		}
@@ -133,7 +132,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 
 		// abXDZ[.]gh_
 		// abX[..]fg_
-		for(uint32_t i = file_mod_end; i < file_sel_end; i++) {
+		for(linenr_t i = file_mod_end; i < file_sel_end; i++) {
 			free(file->lines[i]);
 			file->lines[i] = 0;
 		}
@@ -147,16 +146,16 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 		);
 		// abXDZgh[.]_
 		// abXfg[..]_
-		for(uint32_t i = new_file_len; i < file->len; i++) {
+		for(linenr_t i = new_file_len; i < file->len; i++) {
 			file->lines[i] = 0;
 		}
 	}
 
-	uint32_t new_file_size = next_size(new_file_len);
+	linenr_t new_file_size = next_size(new_file_len);
 
 	// abXDZgh_[.]
 	// abXfg__[.]
-	for(uint32_t i = new_file_size; i < file->size; i++) {
+	for(linenr_t i = new_file_size; i < file->size; i++) {
 		free(file->lines[i]);
 	}
 
@@ -183,7 +182,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 
 		// hgFEDC[..]ba
 		// edC[..]ba
-		for(uint32_t i = file_sel_end; i < file_mod_end; i++) {
+		for(linenr_t i = file_sel_end; i < file_mod_end; i++) {
 			file->lines[i] = 0;
 		}
 
@@ -216,7 +215,7 @@ file_lines_mod(file_t *file, range_t *rng, rawbuf_t *mod, uint32_t nmod)
 	// abX[Y]Zgh_
 	// hgU[VWXY]Zba
 	// edU[V]Wba
-	for(uint32_t i = 1 ; i < nmod - 1; i++) {
+	for(linenr_t i = 1 ; i < nmod - 1; i++) {
 		if(file->lines[rng->start.line + i] != NULL) {
 			file->lines[rng->start.line + i]->len = 0;
 		}
@@ -236,7 +235,7 @@ file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 	char *next;
 
 	rawbuf_t lines[BUFSIZ / 2 + 1];
-	uint32_t nlines;
+	linenr_t nlines;
 
 	while(rest > 0) {
 		nlines = 0;
@@ -270,7 +269,7 @@ file_mod(file_t *file, range_t *rng, char *mod, size_t mod_len)
 }
 
 void
-file_init(file_t *file, uint32_t size)
+file_init(file_t *file, linenr_t size)
 {
 	file->len = 1;
 	file->size = size;
@@ -281,7 +280,7 @@ file_init(file_t *file, uint32_t size)
 void
 file_free(file_t *file)
 {
-	for(uint32_t i = 0; i < file->size; i++) {
+	for(linenr_t i = 0; i < file->size; i++) {
 		free(file->lines[i]);
 	}
 	free(file->lines);

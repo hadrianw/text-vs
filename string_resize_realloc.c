@@ -5,7 +5,7 @@
 #include "string.h"
 
 string_t *
-string_resize_priv(string_t **pstr, uint16_t size, uint16_t sub_off, uint16_t sub_end, uint16_t new_sub_len)
+string_resize_priv(string_t **pstr, stroff_t size, stroff_t sub_off, stroff_t sub_end, stroff_t new_sub_len)
 {
 	(void)sub_off; (void)sub_end; (void)new_sub_len;
 
